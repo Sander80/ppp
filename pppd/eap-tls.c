@@ -328,6 +328,11 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 
 	SSL_library_init();
 	SSL_load_error_strings();
+	/* load the openssl config file only once */
+        if (!ssl_config)
+        {
+                ssl_config = eaptls_ssl_load_config();
+	}
 
 	ctx = SSL_CTX_new(TLS_method());
 
@@ -401,23 +406,16 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 
 	}
 
-	/* load the openssl config file only once */
-	if (!ssl_config)
+	if (cert_engine_name)
+		cert_engine = eaptls_ssl_load_engine( cert_engine_name );
+
+	if (pkey_engine_name)
 	{
-		if (cert_engine_name || pkey_engine_name)
-			ssl_config = eaptls_ssl_load_config();
-
-		if (ssl_config && cert_engine_name)
-			cert_engine = eaptls_ssl_load_engine( cert_engine_name );
-
-		if (ssl_config && pkey_engine_name)
-		{
-			/* don't load the same engine twice */
-			if ( cert_engine && strcmp( cert_engine_name, pkey_engine_name) == 0 )
-				pkey_engine = cert_engine;
-			else
-				pkey_engine = eaptls_ssl_load_engine( pkey_engine_name );
-		}
+		/* don't load the same engine twice */
+		if ( cert_engine && strcmp( cert_engine_name, pkey_engine_name) == 0 )
+			pkey_engine = cert_engine;
+		else
+			pkey_engine = eaptls_ssl_load_engine( pkey_engine_name );
 	}
 
 //	SSL_CTX_set_default_passwd_cb (ctx, password_callback);
