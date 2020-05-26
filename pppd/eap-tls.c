@@ -533,10 +533,14 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 			UI_method_set_closer(transfer_pin,  stub);
 			UI_method_set_flusher(transfer_pin, stub);
 			UI_method_set_reader(transfer_pin,  stub_reader);
-		}
 
-		dbglog( "Loading private key '%s' from engine", pkey_identifier );
-		pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, transfer_pin, &cb_data);
+			dbglog( "Using our private key '%s' in engine", pkey_identifier );
+			pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, transfer_pin, &cb_data);
+		}
+		else {
+			dbglog( "Loading private key '%s' from engine", pkey_identifier );
+			pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, NULL, NULL);
+		}
 		if (pkey)
 		{
 		    dbglog( "Got the private key, adding it to SSL context" );
