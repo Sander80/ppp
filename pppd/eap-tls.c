@@ -406,7 +406,7 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 
 	}
 
-	if (cert_engine_name)
+	if (ssl_config && cert_engine_name)
 		cert_engine = eaptls_ssl_load_engine( cert_engine_name );
 
 	if (pkey_engine_name)
