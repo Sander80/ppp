@@ -113,7 +113,8 @@ endif
 # EAP SRP-SHA1
 ifdef USE_SRP
 CFLAGS	+= -DUSE_SRP -DOPENSSL -I/usr/local/ssl/include
-LIBS	+= -lsrp -L/usr/local/ssl/lib -lcrypto
+LIBS	+= -lsrp -L/usr/local/ssl/lib
+NEEDCRYPTOLIB = y
 TARGETS	+= srp-entry
 EXTRAINSTALL = $(INSTALL) -s -c -m 555 srp-entry $(BINDIR)/srp-entry
 MANPAGES += srp-entry.8
@@ -124,7 +125,8 @@ endif
 # EAP-TLS
 ifdef USE_EAPTLS
 CFLAGS += -DUSE_EAPTLS=1
-LIBS += -lssl -lcrypto
+LIBS += -lssl
+NEEDCRYPTOLIB = y
 PPPDSRC += eap-tls.c
 HEADERS += eap-tls.h
 PPPDOBJS += eap-tls.o
@@ -132,7 +134,7 @@ endif
 
 ifdef USE_OPENSSL_MD5
 CFLAGS += -DUSE_OPENSSL_MD5=1 
-LIBS += -lcrypto
+NEEDCRYPTOLIB = y
 else
 PPPDSRC += md5.c
 HEADERS += md5.h
@@ -141,7 +143,7 @@ endif
 
 ifdef USE_OPENSSL_SHA1
 CFLAGS += -DUSE_OPENSSL_SHA1=1 
-LIBS += -lcrypto
+NEEDCRYPTOLIB = y
 else
 PPPDSRC += sha1.c
 HEADERS += sha1.h
@@ -166,12 +168,16 @@ endif
 ifdef NEEDDES
 ifndef USE_CRYPT
 CFLAGS   += -I$(shell $(CC) --print-sysroot)/usr/include/openssl
-LIBS     += -lcrypto
+NEEDCRYPTOLIB = y
 else
 CFLAGS   += -DUSE_CRYPT=1
 endif
 PPPDOBJS += pppcrypt.o
 HEADERS += pppcrypt.h
+endif
+
+ifdef NEEDCRYPTOLIB
+LIBS     += -lcrypto
 endif
 
 # For "Pluggable Authentication Modules", see ftp.redhat.com:/pub/pam/.

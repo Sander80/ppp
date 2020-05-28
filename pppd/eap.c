@@ -634,11 +634,11 @@ int status;
 		if(ets->frag)
 			esp->es_server.ea_state = eapTlsRecvAck;
 		else
-			if(SSL_is_init_finished(ets->ssl)) 
-				esp->es_server.ea_state = eapTlsRecvClient; 
+			if(SSL_is_init_finished(ets->ssl))
+				esp->es_server.ea_state = eapTlsRecvClient;
 			else
 				/* JJK Add "TLS empty record" message here ??? */
-				esp->es_server.ea_state = eapTlsRecv; 
+				esp->es_server.ea_state = eapTlsRecv;
 		break;
 
 	case eapTlsSendAck:
@@ -1041,7 +1041,7 @@ void *arg;
 #ifdef USE_EAPTLS
 	switch(esp->es_server.ea_prev_state) {
 
-	/* 
+	/*
 	 *  In eap-tls the state changes after a request, so we return to
 	 *  previous state ...
 	 */
@@ -1356,7 +1356,7 @@ u_char id;
 	PUTCHAR(id, outp);
 
 	lenloc = outp;
-	INCPTR(2, outp);        
+	INCPTR(2, outp);
 
 	/*
 	   If the id in the request is unchanged, we must retransmit
@@ -1723,7 +1723,7 @@ int len;
 				if (explicit_remote){
 					esp->es_client.ea_peer = strdup(remote_name);
 					esp->es_client.ea_peerlen = strlen(remote_name);
-				} else 
+				} else
 					esp->es_client.ea_peer = NULL;
 
 				/* Init ssl session */
@@ -1772,7 +1772,7 @@ int len;
 			/* Check if TLS handshake is finished */
 			if(eaptls_is_init_finished(ets)) {
 #ifdef MPPE
- 				eaptls_gen_mppe_keys(ets, 1);
+				eaptls_gen_mppe_keys(ets, 1);
 #endif
 				eaptls_free_session(ets);
 				eap_tls_sendack(esp, id);
@@ -2070,7 +2070,7 @@ int len;
 #ifdef USE_SRP
 	struct t_server *ts;
 	struct t_num A;
-	eHA_CTX ctxt;
+	SHA_CTX ctxt;
 	u_char dig[SHA_DIGEST_LENGTH];
 #endif /* USE_SRP */
 
@@ -2126,7 +2126,7 @@ int len;
 	
 			ets = (struct eaptls_session *) esp->es_server.ea_session;
 
-			eap_figure_next_state(esp, 
+			eap_figure_next_state(esp,
 				eaptls_receive(esp->es_server.ea_session, inp, len));
 
 			if(ets->alert_recv) {
@@ -2149,7 +2149,7 @@ int len;
 
 				if(len == 1 && !flags) {	/* Ack = ok */
 #ifdef MPPE
- 					eaptls_gen_mppe_keys( esp->es_server.ea_session, 0 );
+					eaptls_gen_mppe_keys( esp->es_server.ea_session, 0 );
 #endif
 					eap_send_success(esp);
 				}
@@ -2437,7 +2437,7 @@ int len;
 	}
 
 #ifdef USE_EAPTLS
-	if(esp->es_client.ea_using_eaptls && esp->es_client.ea_state != 
+	if(esp->es_client.ea_using_eaptls && esp->es_client.ea_state !=
 		eapTlsRecvSuccess) {
 		dbglog("EAP-TLS unexpected success message in state %s (%d)",
                     eap_state_name(esp->es_client.ea_state),
