@@ -2,6 +2,7 @@
  * eap-tls.h
  *
  * Copyright (c) Beniamino Galvani 2005 All rights reserved.
+ *               Jan Just Keijser  2006-2019 All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -79,7 +80,7 @@ void ssl_msg_callback(int write_p, int version, int ct, const void *buf,
 X509 *get_X509_from_file(char *filename);
 int ssl_cmp_certs(char *filename, X509 * a);
 
-SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
+SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
             char *certfile, char *peer_certfile, char *privkeyfile);
 int eaptls_init_ssl_server(eap_state * esp);
 int eaptls_init_ssl_client(eap_state * esp);
@@ -91,7 +92,7 @@ void eaptls_retransmit(struct eaptls_session *ets, u_char ** outp);
 
 int get_eaptls_secret(int unit, char *client, char *server,
 		      char *clicertfile, char *servcertfile, char *cacertfile,
-		      char *pkfile, int am_server);
+		      char *capath, char *pkfile, int am_server);
 
 #ifdef MPPE
 #include "mppe.h"   /* MPPE_MAX_KEY_LEN */

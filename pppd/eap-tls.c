@@ -1,6 +1,7 @@
 /* * eap-tls.c - EAP-TLS implementation for PPP
  *
  * Copyright (c) Beniamino Galvani 2005 All rights reserved.
+ *               Jan Just Keijser  2006-2019 All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +30,7 @@
  */
 
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -378,7 +380,7 @@ ENGINE *eaptls_ssl_load_engine( char *engine_name )
  * Initialize the SSL stacks and tests if certificates, key and crl
  * for client or server use can be loaded.
  */
-SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
+SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 			char *certfile, char *peer_certfile, char *privkeyfile)
 {
 	char		*cert_engine_name = NULL;
@@ -395,21 +397,21 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
 	/*
 	 * Without these can't continue 
 	 */
-	if (!cacertfile[0])
+	if (!(cacertfile[0] || capath[0]))
 	{
-		error("EAP-TLS: CA certificate missing");
+		error("EAP-TLS: CA certificate file or path missing");
 		return NULL;
 	}
 
 	if (!certfile[0])
 	{
-		error("EAP-TLS: User certificate missing");
+		error("EAP-TLS: Certificate missing");
 		return NULL;
 	}
 
 	if (!privkeyfile[0])
 	{
-		error("EAP-TLS: User private key missing");
+		error("EAP-TLS: Private key missing");
 		return NULL;
 	}
 
@@ -509,9 +511,14 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
 
 	SSL_CTX_set_default_passwd_cb (ctx, password_callback);
 
-	if (!SSL_CTX_load_verify_locations(ctx, cacertfile, NULL))
+	if (strlen(cacertfile) == 0) cacertfile = NULL;
+	if (strlen(capath) == 0)     capath = NULL;
+
+	if (!SSL_CTX_load_verify_locations(ctx, cacertfile, capath))
 	{
-		error("EAP-TLS: Cannot load or verify CA file %s", cacertfile);
+		error("EAP-TLS: Cannot load verify locations");
+		if (cacertfile) dbglog("CA certificate file = [%s]", cacertfile);
+		if (capath) dbglog("CA certificate path = [%s]", capath);
 		goto fail;
 	}
 
@@ -736,6 +743,7 @@ int eaptls_init_ssl_server(eap_state * esp)
 	char servcertfile[MAXWORDLEN];
 	char clicertfile[MAXWORDLEN];
 	char cacertfile[MAXWORDLEN];
+	char capath[MAXWORDLEN];
 	char pkfile[MAXWORDLEN];
 	/*
 	 * Allocate new eaptls session 
@@ -755,7 +763,7 @@ int eaptls_init_ssl_server(eap_state * esp)
 	dbglog( "getting eaptls secret" );
 	if (!get_eaptls_secret(esp->es_unit, esp->es_server.ea_peer,
 			       esp->es_server.ea_name, clicertfile,
-			       servcertfile, cacertfile, pkfile, 1)) {
+			       servcertfile, cacertfile, capath, pkfile, 1)) {
 		error( "EAP-TLS: Cannot get secret/password for client \"%s\", server \"%s\"",
 				esp->es_server.ea_peer, esp->es_server.ea_name );
 		return 0;
@@ -763,7 +771,7 @@ int eaptls_init_ssl_server(eap_state * esp)
 
 	ets->mtu = eaptls_get_mtu(esp->es_unit);
 
-	ets->ctx = eaptls_init_ssl(1, cacertfile, servcertfile, clicertfile, pkfile);
+	ets->ctx = eaptls_init_ssl(1, cacertfile, capath, servcertfile, clicertfile, pkfile);
 	if (!ets->ctx)
 		goto fail;
 
@@ -823,6 +831,7 @@ int eaptls_init_ssl_client(eap_state * esp)
 	char servcertfile[MAXWORDLEN];
 	char clicertfile[MAXWORDLEN];
 	char cacertfile[MAXWORDLEN];
+	char capath[MAXWORDLEN];
 	char pkfile[MAXWORDLEN];
 
 	/*
@@ -847,14 +856,14 @@ int eaptls_init_ssl_client(eap_state * esp)
 	dbglog( "calling get_eaptls_secret" );
 	if (!get_eaptls_secret(esp->es_unit, esp->es_client.ea_name,
 			       ets->peer, clicertfile,
-			       servcertfile, cacertfile, pkfile, 0)) {
+			       servcertfile, cacertfile, capath, pkfile, 0)) {
 		error( "EAP-TLS: Cannot get secret/password for client \"%s\", server \"%s\"",
 				esp->es_client.ea_name, ets->peer );
 		return 0;
 	}
 
 	dbglog( "calling eaptls_init_ssl" );
-	ets->ctx = eaptls_init_ssl(0, cacertfile, clicertfile, servcertfile, pkfile);
+	ets->ctx = eaptls_init_ssl(0, cacertfile, capath, clicertfile, servcertfile, pkfile);
 	if (!ets->ctx)
 		goto fail;
 
