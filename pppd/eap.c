@@ -2120,6 +2120,7 @@ int len;
 		switch(esp->es_server.ea_state) {
 
 		case eapTlsRecv:
+	
 			ets = (struct eaptls_session *) esp->es_server.ea_session;
 			eap_figure_next_state(esp, 
 				eaptls_receive(esp->es_server.ea_session, inp, len));
@@ -2150,7 +2151,6 @@ int len;
 					eap_send_success(esp);
 				}
 				else {			/* failure */
-					eaptls_receive(esp->es_server.ea_session, inp, len);
 					warn("Server authentication failed");
 					eap_send_failure(esp);
 				}

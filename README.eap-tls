@@ -7,7 +7,7 @@ EAP-TLS authentication support for PPP
     security protocol that can be used with PPP.  It provides a means
     to plug in multiple optional authentication methods.
 
-    Transport Level Security (TLS; RFC 2246) provides for mutual 
+    Transport Level Security (TLS; RFC 5216) provides for mutual 
     authentication, integrity-protected ciphersuite negotiation and 
     key exchange between two endpoints.  It also provides for optional
     MPPE encryption.
@@ -278,10 +278,14 @@ v0.997   (19-Jun-2014)
  - Change SSL_OP_NO_TICKETS to SSL_OP_NO_TICKET
  - Fix bug in initialisation code with fragmented packets.
 v0.998   (13-Mar-2015)
- - Added fix for https://bugzilla.redhat.com/show_bug.cgi?id=1023620
+ - Add fix for https://bugzilla.redhat.com/show_bug.cgi?id=1023620
 v0.999   (11-May-2017)
- - Added support for OpenSSL 1.1: the code will now compile against OpenSSL 1.0.x or 1.1.x.
-v1.101 (31-May-2018)
+ - Add support for OpenSSL 1.1: the code will now compile against OpenSSL 1.0.x or 1.1.x.
+v1.101 (1-Jun-2018)
  - Fix vulnerabilities CVE-2018-11574.
-
-
+v1.102 (2-Nov-2018)
+ - Add TLS 1.2 support. Windows 7/8 will connect using TLS 1.0, Windows 10 clients using TLS 1.2.
+   This works both when compiling against OpenSSL 1.0.1+ and 1.1+.
+ - Print warning when certificate is either not yet valid or has expired.
+ - Perform better peer certificate checks.
+ - Allow certificate chain files to be used.

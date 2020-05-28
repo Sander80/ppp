@@ -1,5 +1,4 @@
-/*
- * eap-tls.c - EAP-TLS implementation for PPP
+/* * eap-tls.c - EAP-TLS implementation for PPP
  *
  * Copyright (c) Beniamino Galvani 2005 All rights reserved.
  *
@@ -55,11 +54,18 @@ static ENGINE *pkey_engine = NULL;
 
 #ifdef MPPE
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#define EAPTLS_MPPE_KEY_LEN     32
+
+/*
+ * The following stuff is only needed if SSL_export_keying_material() is not available
+ */
+
+#if OPENSSL_VERSION_NUMBER < 0x10001000L
 
 /*
  * https://wiki.openssl.org/index.php/1.1_API_Changes
  * tries to provide some guidance but ultimately falls short.
+ *
  */
 
 static void HMAC_CTX_free(HMAC_CTX *ctx)
@@ -77,11 +83,6 @@ static HMAC_CTX *HMAC_CTX_new(void)
 		HMAC_CTX_init(ctx);
 	return ctx;
 }
-
-/*
- * These were basically jacked directly from the OpenSSL tree
- * without adjustments.
- */
 
 static size_t SSL_get_client_random(const SSL *ssl, unsigned char *out,
 				    size_t outlen)
@@ -116,10 +117,6 @@ static size_t SSL_SESSION_get_master_key(const SSL_SESSION *session,
 	return outlen;
 }
 
-/* Avoid a deprecated warning in OpenSSL 1.1 whilst still allowing to build against 1.0.x */
-#define TLS_method           TLSv1_method
-
-#endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
 
 /*
  * TLS PRF from RFC 2246
@@ -177,8 +174,8 @@ static void PRF(const unsigned char *secret, unsigned int secret_len,
 		const unsigned char *seed,   unsigned int seed_len,
 		unsigned char *out, unsigned char *buf, unsigned int out_len)
 {
-        unsigned int i;
-        unsigned int len = (secret_len + 1) / 2;
+	    unsigned int i;
+	    unsigned int len = (secret_len + 1) / 2;
 	const unsigned char *s1 = secret;
 	const unsigned char *s2 = secret + (secret_len - len);
 
@@ -190,57 +187,88 @@ static void PRF(const unsigned char *secret, unsigned int secret_len,
 	}
 }
 
-#define EAPTLS_MPPE_KEY_LEN     32
+static int SSL_export_keying_material(SSL *s, unsigned char *out, size_t olen,
+                               const char *label, size_t llen,
+                               const unsigned char *p, size_t plen,
+                               int use_context)
+{
+	unsigned char seed[64 + 2*SSL3_RANDOM_SIZE];
+	unsigned char buf[4*EAPTLS_MPPE_KEY_LEN];
+	unsigned char master_key[SSL_MAX_MASTER_KEY_LENGTH];
+	size_t master_key_length;
+	unsigned char *pp;
+
+	pp = seed;
+
+	memcpy(pp, label, llen);
+	pp += llen;
+
+	llen += SSL_get_client_random(s, pp, SSL3_RANDOM_SIZE);
+	pp += SSL3_RANDOM_SIZE;
+
+	llen += SSL_get_server_random(s, pp, SSL3_RANDOM_SIZE);
+
+	master_key_length = SSL_SESSION_get_master_key(SSL_get_session(s), master_key,
+						   sizeof(master_key));
+	PRF(master_key, master_key_length, seed, llen, out, buf, olen);
+
+	return 1;
+}
+
+#endif /* OPENSSL_VERSION_NUMBER < 0x10001000L */
+
+
+/*
+ *  OpenSSL 1.1+ introduced a generic TLS_method()
+ *  For older releases we substitute the appropriate method
+ */
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+
+#define TLS_method SSLv23_method
+
+#define SSL3_RT_HEADER	0x100
+
+#endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
+
 
 /*
  *  Generate keys according to RFC 2716 and add to reply
  */
 void eaptls_gen_mppe_keys(struct eaptls_session *ets, const char *prf_label,
-                          int client)
+	                      int client)
 {
-    unsigned char out[4*EAPTLS_MPPE_KEY_LEN], buf[4*EAPTLS_MPPE_KEY_LEN];
-    unsigned char seed[64 + 2*SSL3_RANDOM_SIZE];
-    unsigned char *p = seed;
-	SSL			  *s = ets->ssl;
-    size_t prf_size;
-    unsigned char master_key[SSL_MAX_MASTER_KEY_LENGTH];
-    size_t master_key_length;
+	unsigned char  out[4*EAPTLS_MPPE_KEY_LEN];
+	size_t         prf_size = strlen(prf_label);
+	unsigned char *p;
 
-    prf_size = strlen(prf_label);
+	if (SSL_export_keying_material(ets->ssl, out, sizeof(out), prf_label, prf_size, NULL, 0, 0) != 1)
+	{
+	    warn( "EAP-TLS: Failed generating keying material" );
+	    return;
+	}   
 
-    memcpy(p, prf_label, prf_size);
-    p += prf_size;
-
-    prf_size += SSL_get_client_random(s, p, SSL3_RANDOM_SIZE);
-    p += SSL3_RANDOM_SIZE;
-
-    prf_size += SSL_get_server_random(s, p, SSL3_RANDOM_SIZE);
-
-    master_key_length = SSL_SESSION_get_master_key(SSL_get_session(s), master_key,
-						   sizeof(master_key));
-    PRF(master_key, master_key_length, seed, prf_size, out, buf, sizeof(out));
-
-    /* 
-     * We now have the master send and receive keys.
-     * From these, generate the session send and receive keys.
-     * (see RFC3079 / draft-ietf-pppext-mppe-keys-03.txt for details)
-     */
-    if (client)
-    {
+	/* 
+	 * We now have the master send and receive keys.
+	 * From these, generate the session send and receive keys.
+	 * (see RFC3079 / draft-ietf-pppext-mppe-keys-03.txt for details)
+	 */
+	if (client)
+	{
 	    p = out;
 		BCOPY( p, mppe_send_key, sizeof(mppe_send_key) );
 		p += EAPTLS_MPPE_KEY_LEN;
-    	BCOPY( p, mppe_recv_key, sizeof(mppe_recv_key) );
-    }
-    else
-    {
-	    p = out;
-    	BCOPY( p, mppe_recv_key, sizeof(mppe_recv_key) );
+		BCOPY( p, mppe_recv_key, sizeof(mppe_recv_key) );
+	}
+	else
+	{
+		p = out;
+		BCOPY( p, mppe_recv_key, sizeof(mppe_recv_key) );
 		p += EAPTLS_MPPE_KEY_LEN;
 		BCOPY( p, mppe_send_key, sizeof(mppe_send_key) );
-    }
+	}
 
-    mppe_keys_set = 1;
+	mppe_keys_set = 1;
 }
 
 #endif
@@ -249,7 +277,7 @@ void log_ssl_errors( void )
 {
 	unsigned long ssl_err = ERR_get_error();
 
-    if (ssl_err != 0)
+	if (ssl_err != 0)
 		dbglog("EAP-TLS SSL error stack:");
 	while (ssl_err != 0) {
 		dbglog( ERR_error_string( ssl_err, NULL ) );
@@ -271,34 +299,34 @@ int password_callback (char *buf, int size, int rwflag, void *u)
 
 CONF *eaptls_ssl_load_config( void )
 {
-    CONF        *config;
-    int          ret_code;
-    long         error_line = 33;
+	CONF        *config;
+	int          ret_code;
+	long         error_line = 33;
 
-    config = NCONF_new( NULL );
+	config = NCONF_new( NULL );
 	dbglog( "Loading OpenSSL config file" );
-    ret_code = NCONF_load( config, _PATH_OPENSSLCONFFILE, &error_line );
-    if (ret_code == 0)
-    {
-        warn( "EAP-TLS: Error in OpenSSL config file %s at line %d", _PATH_OPENSSLCONFFILE, error_line );
-        NCONF_free( config );
-        config = NULL;
-        ERR_clear_error();
-    }
+	ret_code = NCONF_load( config, _PATH_OPENSSLCONFFILE, &error_line );
+	if (ret_code == 0)
+	{
+	    warn( "EAP-TLS: Error in OpenSSL config file %s at line %d", _PATH_OPENSSLCONFFILE, error_line );
+	    NCONF_free( config );
+	    config = NULL;
+	    ERR_clear_error();
+	}
 
 	dbglog( "Loading OpenSSL built-ins" );
-    ENGINE_load_builtin_engines();
-    OPENSSL_load_builtin_modules();
+	ENGINE_load_builtin_engines();
+	OPENSSL_load_builtin_modules();
    
 	dbglog( "Loading OpenSSL configured modules" );
-    if (CONF_modules_load( config, NULL, 0 ) <= 0 )
-    {
-        warn( "EAP-TLS: Error loading OpenSSL modules" );
+	if (CONF_modules_load( config, NULL, 0 ) <= 0 )
+	{
+	    warn( "EAP-TLS: Error loading OpenSSL modules" );
 	    log_ssl_errors();
-        config = NULL;
-    }
+	    config = NULL;
+	}
 
-    return config;
+	return config;
 }
 
 ENGINE *eaptls_ssl_load_engine( char *engine_name )
@@ -310,7 +338,7 @@ ENGINE *eaptls_ssl_load_engine( char *engine_name )
 
 	dbglog( "Loading OpenSSL '%s' engine support", engine_name );
 	e = ENGINE_by_id( engine_name );
-    if (!e) 
+	if (!e) 
 	{
 		dbglog( "EAP-TLS: Cannot load '%s' engine support, trying 'dynamic'", engine_name );
 		e = ENGINE_by_id( "dynamic" );
@@ -331,7 +359,7 @@ ENGINE *eaptls_ssl_load_engine( char *engine_name )
 		}
 	}
 
-    if (e)
+	if (e)
 	{
 		dbglog( "Initialising engine" );
 		if(!ENGINE_set_default(e, ENGINE_METHOD_ALL))
@@ -343,7 +371,7 @@ ENGINE *eaptls_ssl_load_engine( char *engine_name )
 		}
 	}
 
-    return e;
+	return e;
 }
 
 /*
@@ -358,30 +386,32 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
 	char		*pkey_engine_name = NULL;
 	char		*pkey_identifier = NULL;
 	SSL_CTX		*ctx;
+	SSL			*ssl;
 	X509_STORE	*certstore;
 	X509_LOOKUP	*lookup;
 	X509		*tmp;
+	int			ret;
 
 	/*
 	 * Without these can't continue 
 	 */
 	if (!cacertfile[0])
-    {
+	{
 		error("EAP-TLS: CA certificate missing");
 		return NULL;
-    }
+	}
 
 	if (!certfile[0])
-    {
+	{
 		error("EAP-TLS: User certificate missing");
 		return NULL;
-    }
+	}
 
 	if (!privkeyfile[0])
-    {
+	{
 		error("EAP-TLS: User private key missing");
 		return NULL;
-    }
+	}
 
 	SSL_library_init();
 	SSL_load_error_strings();
@@ -477,7 +507,7 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
 		}
 	}
 
-    SSL_CTX_set_default_passwd_cb (ctx, password_callback);
+	SSL_CTX_set_default_passwd_cb (ctx, password_callback);
 
 	if (!SSL_CTX_load_verify_locations(ctx, cacertfile, NULL))
 	{
@@ -485,7 +515,7 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
 		goto fail;
 	}
 
-    if (init_server)
+	if (init_server)
 		SSL_CTX_set_client_CA_list(ctx, SSL_load_client_CA_file(cacertfile));
 
 	if (cert_engine)
@@ -523,12 +553,40 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
 	}
 	else
 	{
-		if (!SSL_CTX_use_certificate_file(ctx, certfile, SSL_FILETYPE_PEM))
+		if (!SSL_CTX_use_certificate_chain_file(ctx, certfile))
 		{
 			error( "EAP-TLS: Cannot use public certificate %s", certfile );
 			goto fail;
 		}
 	}
+
+
+	/*
+	 *  Check the Before and After dates of the certificate
+	 */
+	ssl = SSL_new(ctx);
+	tmp = SSL_get_certificate(ssl);
+
+	ret = X509_cmp_time(X509_get_notBefore(tmp), NULL);
+	if (ret == 0)
+	{    
+		warn( "EAP-TLS: Failed to read certificate notBefore field.");
+	}    
+	if (ret > 0) 
+	{    
+		warn( "EAP-TLS: Your certificate is not yet valid!");
+	}    
+
+	ret = X509_cmp_time(X509_get_notAfter(tmp), NULL);
+	if (ret == 0)
+	{    
+		warn( "EAP-TLS: Failed to read certificate notAfter field.");
+	}    
+	if (ret < 0)
+	{
+		warn( "EAP-TLS: Your certificate has expired!");
+	}
+	SSL_free(ssl);
 
 	if (pkey_engine)
 	{
@@ -572,9 +630,10 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
     /* Explicitly set the NO_TICKETS flag to support Win7/Win8 clients */
 	SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3
 #ifdef SSL_OP_NO_TICKET
-    | SSL_OP_NO_TICKET
+	| SSL_OP_NO_TICKET
 #endif
-);
+	);
+
 	SSL_CTX_set_verify_depth(ctx, 5);
 	SSL_CTX_set_verify(ctx,
 			   SSL_VERIFY_PEER |
@@ -598,33 +657,33 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile,
 		X509_STORE_set_flags(certstore, X509_V_FLAG_CRL_CHECK);
 	}
 
-    if (crl_file) {
-        FILE     *fp  = NULL;
-        X509_CRL *crl = NULL;
+	if (crl_file) {
+	    FILE     *fp  = NULL;
+	    X509_CRL *crl = NULL;
 
-        fp = fopen(crl_file, "r");
-        if (!fp) {
-            error("EAP-TLS: Cannot open CRL file '%s'", crl_file);
-            goto fail;
-        }
+	    fp = fopen(crl_file, "r");
+	    if (!fp) {
+	        error("EAP-TLS: Cannot open CRL file '%s'", crl_file);
+	        goto fail;
+	    }
 
-        crl = PEM_read_X509_CRL(fp, NULL, NULL, NULL);
-        if (!crl) {
-            error("EAP-TLS: Cannot read CRL file '%s'", crl_file);
-            goto fail;
-        }
+	    crl = PEM_read_X509_CRL(fp, NULL, NULL, NULL);
+	    if (!crl) {
+	        error("EAP-TLS: Cannot read CRL file '%s'", crl_file);
+	        goto fail;
+	    }
 
 		if (!(certstore = SSL_CTX_get_cert_store(ctx))) {
 			error("EAP-TLS: Failed to get certificate store");
 			goto fail;
 		}
-        if (!X509_STORE_add_crl(certstore, crl)) {
-            error("EAP-TLS: Cannot add CRL to certificate store");
-            goto fail;
-        }
+	    if (!X509_STORE_add_crl(certstore, crl)) {
+	        error("EAP-TLS: Cannot add CRL to certificate store");
+	        goto fail;
+	    }
 		X509_STORE_set_flags(certstore, X509_V_FLAG_CRL_CHECK);
 
-    }
+	}
 
 	/*
 	 * If a peer certificate file was specified, it must be valid, else fail 
@@ -661,10 +720,10 @@ int eaptls_get_mtu(int unit)
 
 	mtu = ho->neg_mru? ho->mru: PPP_MRU;
 	mru = go->neg_mru? MAX(wo->mru, go->mru): PPP_MRU;
-    mtu = MIN(MIN(mtu, mru), ao->mru)- PPP_HDRLEN - 10;
+	mtu = MIN(MIN(mtu, mru), ao->mru)- PPP_HDRLEN - 10;
 
 	dbglog("MTU = %d", mtu);
- 	return mtu;
+	return mtu;
 }
 
 
@@ -865,7 +924,7 @@ void eaptls_free_session(struct eaptls_session *ets)
 int eaptls_receive(struct eaptls_session *ets, u_char * inp, int len)
 {
 	u_char flags;
-	u_int tlslen;
+	u_int tlslen = 0;
 	u_char dummy[65536];
 
 	if (len < 1) {
@@ -876,40 +935,36 @@ int eaptls_receive(struct eaptls_session *ets, u_char * inp, int len)
 	GETCHAR(flags, inp);
 	len--;
 
-    if (flags & EAP_TLS_FLAGS_LI && !ets->data) {
- 
+	if (flags & EAP_TLS_FLAGS_LI && len > 4) {
 		/*
-		 * This is the first packet of a message
+		 * LenghtIncluded flag set -> this is the first packet of a message
 		*/
- 
+
+		/*
+		 * the first 4 octets are the length of the EAP-TLS message
+		 */
 		GETLONG(tlslen, inp);
 		len -= 4;
 
-		if (tlslen > EAP_TLS_MAX_LEN) {
-			error("EAP-TLS: TLS message length > %d, truncated",
-				EAP_TLS_MAX_LEN);
-			tlslen = EAP_TLS_MAX_LEN;
+		if (!ets->data) {
+
+			if (tlslen > EAP_TLS_MAX_LEN) {
+				error("EAP-TLS: TLS message length > %d, truncated", EAP_TLS_MAX_LEN);
+				tlslen = EAP_TLS_MAX_LEN;
+			}
+
+			/*
+			 * Allocate memory for the whole message
+			*/
+			ets->data = malloc(tlslen);
+			if (!ets->data)
+				fatal("EAP-TLS: allocation error\n");
+
+			ets->datalen = 0;
+			ets->tlslen = tlslen;
 		}
-
-		/*
-		 * Allocate memory for the whole message
-		*/
-		ets->data = malloc(tlslen);
-		if (!ets->data)
-			fatal("EAP-TLS: allocation error\n");
-
-		ets->datalen = 0;
-		ets->tlslen = tlslen;
-
-	}
-	else if (flags & EAP_TLS_FLAGS_LI && ets->data) {
-		/*
-		 * Non first with LI (strange...)
-		*/
- 
-		GETLONG(tlslen, inp);
-		len -= 4;
- 
+		else
+			warn("EAP-TLS: non-first LI packet? that's odd...");
 	}
 	else if (!ets->data) {
 		/*
@@ -991,7 +1046,10 @@ int eaptls_send(struct eaptls_session *ets, u_char ** outp)
 		 * Read from ssl 
 		 */
 		if ((res = BIO_read(ets->from_ssl, fromtls, 65536)) == -1)
-			fatal("No data from BIO_read");
+		{
+			warn("EAP-TLS send: No data from BIO_read");
+			return 1;
+		}
 
 		ets->datalen = res;
 
@@ -1004,7 +1062,7 @@ int eaptls_send(struct eaptls_session *ets, u_char ** outp)
 	}
 
 	size = ets->datalen - ets->offset;
-    
+	
 	if (size > ets->mtu) {
 		size = ets->mtu;
 		ets->frag = 1;
@@ -1068,13 +1126,12 @@ void eaptls_retransmit(struct eaptls_session *ets, u_char ** outp)
  * is done by ssl; we check the CN in the peer certificate 
  * against the peer name.
  */
-int ssl_verify_callback(int preverify_ok, X509_STORE_CTX * ctx)
+int ssl_verify_callback(int ok, X509_STORE_CTX * ctx)
 {
 	char subject[256];
 	char cn_str[256];
 	X509 *peer_cert;
 	int err, depth;
-	int ok = preverify_ok;
 	SSL *ssl;
 	struct eaptls_session *ets;
 
@@ -1084,7 +1141,7 @@ int ssl_verify_callback(int preverify_ok, X509_STORE_CTX * ctx)
 
 	dbglog("certificate verify depth: %d", depth);
 
-    if (auth_required && !ok) {
+	if (auth_required && !ok) {
 		X509_NAME_oneline(X509_get_subject_name(peer_cert),
 				  subject, 256);
 
@@ -1124,7 +1181,7 @@ int ssl_verify_callback(int preverify_ok, X509_STORE_CTX * ctx)
 		 */
 		if (!ets->peer[0]) {
 			warn("Peer name not specified: no check");
-			return 1;
+			return ok;
 		}
 
 		/*
@@ -1152,7 +1209,7 @@ int ssl_verify_callback(int preverify_ok, X509_STORE_CTX * ctx)
 		}
 	}
 
-	return 1;
+	return ok;
 }
 
 /*
@@ -1201,7 +1258,7 @@ ssl_msg_callback(int write_p, int version, int content_type,
 	struct eaptls_session *ets = (struct eaptls_session *)arg;
 	unsigned char code;
 	const unsigned char*msg = buf;
-    int hvers = msg[1] << 8 | msg[2];
+	int hvers = msg[1] << 8 | msg[2];
 
 	if(write_p)
 		strcpy(string, " -> ");
@@ -1210,7 +1267,6 @@ ssl_msg_callback(int write_p, int version, int content_type,
 
 	switch(content_type) {
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
 	case SSL3_RT_HEADER:
 		strcat(string, "SSL/TLS Header: ");
 		switch(hvers) {
@@ -1226,17 +1282,10 @@ ssl_msg_callback(int write_p, int version, int content_type,
 		case TLS1_2_VERSION:
 				strcat(string, "TLS 1.2");
 				break;
-		case DTLS1_VERSION:
-				strcat(string, "DTLS 1.0");
-				break;
-		case DTLS1_2_VERSION:
-				strcat(string, "DTLS 1.2");
-				break;
 		default:
 			strcat(string, "Unknown version");
 		}
 		break;
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10100000L */
 
 	case SSL3_RT_ALERT:	
 		strcat(string, "Alert: ");	
@@ -1296,9 +1345,25 @@ ssl_msg_callback(int write_p, int version, int content_type,
 				strcat(string,"Client Key Exchange");
 				break;
 			case SSL3_MT_FINISHED:
-				strcat(string,"Finished");
+				strcat(string,"Finished: ");
+				hvers = SSL_version(ssl);
+				switch(hvers) {
+				case SSL3_VERSION:
+						strcat(string, "SSL 3.0");
+						break;
+				case TLS1_VERSION:
+						strcat(string, "TLS 1.0");
+						break;
+				case TLS1_1_VERSION:
+						strcat(string, "TLS 1.1");
+						break;
+				case TLS1_2_VERSION:
+						strcat(string, "TLS 1.2");
+						break;
+				default:
+					strcat(string, "Unknown version");
+				}
 				break;
-
 			default:
 				sprintf( string, "Handshake: Unknown SSL3 code received: %d", code );
 		}
