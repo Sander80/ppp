@@ -740,7 +740,7 @@ int eaptls_init_ssl_server(eap_state * esp)
 		return 0;
 	}
 
-	strncpy(ets->peer, esp->es_server.ea_peer, MAXWORDLEN);
+	strncpy(ets->peer, esp->es_server.ea_peer, MAXWORDLEN-1);
 
 	dbglog( "getting eaptls secret" );
 	if (!get_eaptls_secret(esp->es_unit, esp->es_server.ea_peer,
@@ -795,7 +795,7 @@ int eaptls_init_ssl_server(eap_state * esp)
 	 * so we can check it later in ssl_verify_callback()
 	 */
 	if (clicertfile[0])
-		strncpy(&ets->peercertfile[0], clicertfile, MAXWORDLEN);
+		strncpy(&ets->peercertfile[0], clicertfile, MAXWORDLEN-1);
 	else
 		ets->peercertfile[0] = 0;
 
