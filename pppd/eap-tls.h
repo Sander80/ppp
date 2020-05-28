@@ -36,7 +36,6 @@
 
 #include <openssl/ssl.h>
 #include <openssl/bio.h>
-#include <openssl/md5.h>
 
 #define EAP_TLS_FLAGS_LI        128	/* length included flag */
 #define EAP_TLS_FLAGS_MF        64	/* more fragments flag */

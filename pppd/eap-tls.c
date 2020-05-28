@@ -52,10 +52,6 @@ static CONF   *ssl_config  = NULL;
 static ENGINE *cert_engine = NULL;
 static ENGINE *pkey_engine = NULL;
 
-#ifdef MPPE
-
-#define EAPTLS_MPPE_KEY_LEN     32
-
 /*
  * The following stuff is only needed if SSL_export_keying_material() is not available
  */
@@ -232,6 +228,10 @@ static int SSL_export_keying_material(SSL *s, unsigned char *out, size_t olen,
 #endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
 
 
+#ifdef MPPE
+
+#define EAPTLS_MPPE_KEY_LEN     32
+
 /*
  *  Generate keys according to RFC 2716 and add to reply
  */
@@ -271,7 +271,7 @@ void eaptls_gen_mppe_keys(struct eaptls_session *ets, const char *prf_label,
 	mppe_keys_set = 1;
 }
 
-#endif
+#endif /* MPPE */
 
 void log_ssl_errors( void )
 {

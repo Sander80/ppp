@@ -68,11 +68,11 @@
 #include "pppd.h"
 #include "pathnames.h"
 #include "eap.h"
-#ifdef USE_EAPTLS
-#include "eap-tls.h"
+#ifdef USE_OPENSSL_MD5
+#include "openssl/md5.h"
 #else
 #include "md5.h"
-#endif /* USE_EAPTLS */
+#endif /* USE_OPENSSL_MD5 */
 
 #ifdef USE_SRP
 #include <t_pwd.h>
@@ -81,8 +81,12 @@
 #include "pppcrypt.h"
 #endif /* USE_SRP */
 
-#ifndef SHA_DIGESTSIZE
-#define	SHA_DIGESTSIZE 20
+#ifdef USE_EAPTLS
+#include "eap-tls.h"
+#endif /* USE_EAPTLS */
+
+#ifndef SHA_DIGEST_LENGTH
+#define	SHA_DIGEST_LENGTH 20
 #endif
 
 static const char rcsid[] = RCSID;
@@ -329,8 +333,8 @@ pncrypt_setkey(int timeoffs)
 {
 	struct tm *tp;
 	char tbuf[9];
-	SHA1_CTX ctxt;
-	u_char dig[SHA_DIGESTSIZE];
+	SHA_CTX ctxt;
+	u_char dig[SHA_DIGEST_LENGTH];
 	time_t reftime;
 
 	if (pn_secret == NULL)
@@ -738,10 +742,10 @@ eap_state *esp;
 	char *str;
 #ifdef USE_SRP
 	struct t_server *ts;
-	u_char clear[8], cipher[8], dig[SHA_DIGESTSIZE], *optr, *cp;
+	u_char clear[8], cipher[8], dig[SHA_DIGEST_LENGTH], *optr, *cp;
 	int i, j;
 	struct b64state b64;
-	SHA1_CTX ctxt;
+	SHA_CTX ctxt;
 #endif /* USE_SRP */
 
 	/* Handle both initial auth and restart */
@@ -878,8 +882,8 @@ eap_state *esp;
 		PUTLONG(SRPVAL_EBIT, outp);
 		ts = (struct t_server *)esp->es_server.ea_session;
 		assert(ts != NULL);
-		BCOPY(t_serverresponse(ts), outp, SHA_DIGESTSIZE);
-		INCPTR(SHA_DIGESTSIZE, outp);
+		BCOPY(t_serverresponse(ts), outp, SHA_DIGEST_LENGTH);
+		INCPTR(SHA_DIGEST_LENGTH, outp);
 
 		if (pncrypt_setkey(0)) {
 			/* Generate pseudonym */
@@ -919,9 +923,9 @@ eap_state *esp;
 			/* Set length and pad out to next 20 octet boundary */
 			i = outp - optr - 1;
 			*optr = i;
-			i %= SHA_DIGESTSIZE;
+			i %= SHA_DIGEST_LENGTH;
 			if (i != 0) {
-				while (i < SHA_DIGESTSIZE) {
+				while (i < SHA_DIGEST_LENGTH) {
 					*outp++ = drand48() * 0x100;
 					i++;
 				}
@@ -937,14 +941,14 @@ eap_state *esp;
 			while (optr < outp) {
 				SHA1Final(dig, &ctxt);
 				cp = dig;
-				while (cp < dig + SHA_DIGESTSIZE)
+				while (cp < dig + SHA_DIGEST_LENGTH)
 					*optr++ ^= *cp++;
 				SHA1Init(&ctxt);
 				SHA1Update(&ctxt, &esp->es_server.ea_id, 1);
 				SHA1Update(&ctxt, esp->es_server.ea_skey,
 				    SESSION_KEY_LEN);
-				SHA1Update(&ctxt, optr - SHA_DIGESTSIZE,
-				    SHA_DIGESTSIZE);
+				SHA1Update(&ctxt, optr - SHA_DIGEST_LENGTH,
+				    SHA_DIGEST_LENGTH);
 			}
 		}
 		break;
@@ -1315,12 +1319,12 @@ u_char *str;
 	PUTCHAR(id, outp);
 	esp->es_client.ea_id = id;
 	msglen = EAP_HEADERLEN + 2 * sizeof (u_char) + sizeof (u_int32_t) +
-	    SHA_DIGESTSIZE;
+	    SHA_DIGEST_LENGTH;
 	PUTSHORT(msglen, outp);
 	PUTCHAR(EAPT_SRP, outp);
 	PUTCHAR(EAPSRP_CVALIDATOR, outp);
 	PUTLONG(flags, outp);
-	BCOPY(str, outp, SHA_DIGESTSIZE);
+	BCOPY(str, outp, SHA_DIGEST_LENGTH);
 
 	output(esp->es_unit, outpacket_buf, PPP_HDRLEN + msglen);
 }
@@ -1487,8 +1491,8 @@ int len, id;
 {
 	u_char val;
 	u_char *datp, *digp;
-	SHA1_CTX ctxt;
-	u_char dig[SHA_DIGESTSIZE];
+	SHA_CTX ctxt;
+	u_char dig[SHA_DIGEST_LENGTH];
 	int dsize, fd, olen = len;
 
 	/*
@@ -1497,21 +1501,21 @@ int len, id;
 	 */
 	val = id;
 	while (len > 0) {
-		if ((dsize = len % SHA_DIGESTSIZE) == 0)
-			dsize = SHA_DIGESTSIZE;
+		if ((dsize = len % SHA_DIGEST_LENGTH) == 0)
+			dsize = SHA_DIGEST_LENGTH;
 		len -= dsize;
 		datp = inp + len;
 		SHA1Init(&ctxt);
 		SHA1Update(&ctxt, &val, 1);
 		SHA1Update(&ctxt, esp->es_client.ea_skey, SESSION_KEY_LEN);
 		if (len > 0) {
-			SHA1Update(&ctxt, datp, SHA_DIGESTSIZE);
+			SHA1Update(&ctxt, datp, SHA_DIGEST_LENGTH);
 		} else {
 			SHA1Update(&ctxt, esp->es_client.ea_name,
 			    esp->es_client.ea_namelen);
 		}
 		SHA1Final(dig, &ctxt);
-		for (digp = dig; digp < dig + SHA_DIGESTSIZE; digp++)
+		for (digp = dig; digp < dig + SHA_DIGEST_LENGTH; digp++)
 			*datp++ ^= *digp;
 	}
 
@@ -1564,8 +1568,8 @@ int len;
 	struct t_client *tc;
 	struct t_num sval, gval, Nval, *Ap, Bval;
 	u_char vals[2];
-	SHA1_CTX ctxt;
-	u_char dig[SHA_DIGESTSIZE];
+	SHA_CTX ctxt;
+	u_char dig[SHA_DIGEST_LENGTH];
 	int fd;
 #endif /* USE_SRP */
 
@@ -1974,7 +1978,7 @@ int len;
 					    esp->es_client.ea_id, id);
 				}
 			} else {
-				len -= sizeof (u_int32_t) + SHA_DIGESTSIZE;
+				len -= sizeof (u_int32_t) + SHA_DIGEST_LENGTH;
 				if (len < 0 || t_clientverify(tc, inp +
 					sizeof (u_int32_t)) != 0) {
 					error("EAP: SRP server verification "
@@ -1984,7 +1988,7 @@ int len;
 				GETLONG(esp->es_client.ea_keyflags, inp);
 				/* Save pseudonym if user wants it. */
 				if (len > 0 && esp->es_usepseudo) {
-					INCPTR(SHA_DIGESTSIZE, inp);
+					INCPTR(SHA_DIGEST_LENGTH, inp);
 					write_pseudonym(esp, inp, len, id);
 				}
 			}
@@ -2011,7 +2015,7 @@ int len;
 			    esp->es_client.ea_namelen);
 			SHA1Final(dig, &ctxt);
 			eap_srp_response(esp, id, EAPSRP_LWRECHALLENGE, dig,
-			    SHA_DIGESTSIZE);
+			    SHA_DIGEST_LENGTH);
 			break;
 
 		default:
@@ -2067,8 +2071,8 @@ int len;
 #ifdef USE_SRP
 	struct t_server *ts;
 	struct t_num A;
-	SHA1_CTX ctxt;
-	u_char dig[SHA_DIGESTSIZE];
+	eHA_CTX ctxt;
+	u_char dig[SHA_DIGEST_LENGTH];
 #endif /* USE_SRP */
 
 #ifdef USE_EAPTLS
@@ -2328,9 +2332,9 @@ int len;
 				eap_figure_next_state(esp, 1);
 				break;
 			}
-			if (len < sizeof (u_int32_t) + SHA_DIGESTSIZE) {
+			if (len < sizeof (u_int32_t) + SHA_DIGEST_LENGTH) {
 				error("EAP: M1 length %d < %d", len,
-				    sizeof (u_int32_t) + SHA_DIGESTSIZE);
+				    sizeof (u_int32_t) + SHA_DIGEST_LENGTH);
 				eap_figure_next_state(esp, 1);
 				break;
 			}
@@ -2367,7 +2371,7 @@ int len;
 				info("EAP: unexpected SRP Subtype 4 Response");
 				return;
 			}
-			if (len != SHA_DIGESTSIZE) {
+			if (len != SHA_DIGEST_LENGTH) {
 				error("EAP: bad Lightweight rechallenge "
 				    "response");
 				return;
@@ -2381,7 +2385,7 @@ int len;
 			SHA1Update(&ctxt, esp->es_server.ea_peer,
 			    esp->es_server.ea_peerlen);
 			SHA1Final(dig, &ctxt);
-			if (BCMP(dig, inp, SHA_DIGESTSIZE) != 0) {
+			if (BCMP(dig, inp, SHA_DIGEST_LENGTH) != 0) {
 				error("EAP: failed Lightweight rechallenge");
 				eap_send_failure(esp);
 				break;
@@ -2720,10 +2724,10 @@ void *arg;
 				if (uval != 0) {
 					printer(arg, " f<%X>", uval);
 				}
-				if ((vallen = len) > SHA_DIGESTSIZE)
-					vallen = SHA_DIGESTSIZE;
+				if ((vallen = len) > SHA_DIGEST_LENGTH)
+					vallen = SHA_DIGEST_LENGTH;
 				printer(arg, " <M2%.*B%s>", len, inp,
-				    len < SHA_DIGESTSIZE ? "?" : "");
+				    len < SHA_DIGEST_LENGTH ? "?" : "");
 				INCPTR(vallen, inp);
 				len -= vallen;
 				if (len > 0) {
@@ -2846,7 +2850,7 @@ void *arg;
 					printer(arg, " f<%X>", uval);
 				}
 				printer(arg, " <M1%.*B%s>", len, inp,
-				    len == SHA_DIGESTSIZE ? "" : "?");
+				    len == SHA_DIGEST_LENGTH ? "" : "?");
 				INCPTR(len, inp);
 				len = 0;
 				break;
@@ -2856,9 +2860,9 @@ void *arg;
 
 			case EAPSRP_LWRECHALLENGE:
 				printer(arg, " <Response%.*B%s>", len, inp,
-				    len == SHA_DIGESTSIZE ? "" : "?");
-				if ((vallen = len) > SHA_DIGESTSIZE)
-					vallen = SHA_DIGESTSIZE;
+				    len == SHA_DIGEST_LENGTH ? "" : "?");
+				if ((vallen = len) > SHA_DIGEST_LENGTH)
+					vallen = SHA_DIGEST_LENGTH;
 				INCPTR(vallen, inp);
 				len -= vallen;
 				break;
