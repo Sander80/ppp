@@ -78,7 +78,6 @@
 #include <pwd.h>
 #include <grp.h>
 #include <string.h>
-#include <strings.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -257,6 +256,7 @@ char *cert_file    = NULL;	/* client certificate file (pem format) */
 char *privkey_file = NULL;	/* client private key file (pem format) */
 char *crl_dir      = NULL;	/* directory containing CRL files */
 char *crl_file     = NULL;	/* Certificate Revocation List (CRL) file (pem format) */
+char *max_tls_version = NULL;	/* Maximum TLS protocol version (default=1.2) */
 bool need_peer_eap = 0;			/* Require peer to authenticate us */
 #endif
 
@@ -442,6 +442,8 @@ option_t auth_options[] = {
     { "key", o_string, &privkey_file, "EAP-TLS client private key in PEM format" },
     { "crl-dir", o_string, &crl_dir,  "Use CRLs in directory" },
     { "crl", o_string, &crl_file,     "Use specific CRL file" },
+    { "max-tls-version", o_string, &max_tls_version,
+      "Maximum TLS version (1.0/1.1/1.2 (default)/1.3)" },
     { "need-peer-eap", o_bool, &need_peer_eap,
       "Require the peer to authenticate us", 1 },
 #endif /* USE_EAPTLS */

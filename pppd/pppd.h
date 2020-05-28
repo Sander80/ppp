@@ -344,6 +344,7 @@ extern int	child_wait;	/* # seconds to wait for children at end */
 #ifdef USE_EAPTLS
 extern char	*crl_dir;
 extern char	*crl_file;
+extern char *max_tls_version;
 #endif /* USE_EAPTLS */
 
 #ifdef MAXOCTETS

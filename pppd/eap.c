@@ -634,21 +634,23 @@ int status;
 		if(ets->frag)
 			esp->es_server.ea_state = eapTlsRecvAck;
 		else
-			if(SSL_is_init_finished(ets->ssl))
-				esp->es_server.ea_state = eapTlsRecvClient;
+			if(SSL_is_init_finished(ets->ssl)) 
+				esp->es_server.ea_state = eapTlsRecvClient; 
 			else
-				esp->es_server.ea_state = eapTlsRecv;
+				/* JJK Add "TLS empty record" message here ??? */
+				esp->es_server.ea_state = eapTlsRecv; 
 		break;
 
 	case eapTlsSendAck:
-			esp->es_server.ea_state = eapTlsRecv;
+		esp->es_server.ea_state = eapTlsRecv;
 		break;
 
 	case eapTlsRecvAck:
-                if (status) {
-                        esp->es_server.ea_state = eapBadAuth;
-                        break;
-                }
+		if (status)
+		{
+			esp->es_server.ea_state = eapBadAuth;
+			break;
+		}
 
 		esp->es_server.ea_state = eapTlsSend;
 		break;
@@ -723,6 +725,10 @@ int status;
 	}
 	if (esp->es_server.ea_state == eapBadAuth)
 		eap_send_failure(esp);
+
+#ifdef USE_EAPTLS
+	dbglog("EAP id=0x%2x '%s' -> '%s'", esp->es_server.ea_id, eap_state_name(esp->es_server.ea_prev_state), eap_state_name(esp->es_server.ea_state));
+#endif /* USE_EAPTLS */
 }
 
 /*
@@ -1035,7 +1041,7 @@ void *arg;
 #ifdef USE_EAPTLS
 	switch(esp->es_server.ea_prev_state) {
 
-	/*
+	/* 
 	 *  In eap-tls the state changes after a request, so we return to
 	 *  previous state ...
 	 */
@@ -1338,19 +1344,19 @@ eap_tls_response(esp, id)
 eap_state *esp;
 u_char id;
 {
-        u_char *outp;
-        int outlen;
+	u_char *outp;
+	int outlen;
 	u_char *lenloc;
 
-        outp = outpacket_buf;
+	outp = outpacket_buf;
 
-        MAKEHEADER(outp, PPP_EAP);
+	MAKEHEADER(outp, PPP_EAP);
 
-        PUTCHAR(EAP_RESPONSE, outp);
-        PUTCHAR(id, outp);
+	PUTCHAR(EAP_RESPONSE, outp);
+	PUTCHAR(id, outp);
 
 	lenloc = outp;
-	INCPTR(2, outp);
+	INCPTR(2, outp);        
 
 	/*
 	   If the id in the request is unchanged, we must retransmit
@@ -1367,7 +1373,6 @@ u_char id;
 	output(esp->es_unit, outpacket_buf, PPP_HDRLEN + outlen);
 
 	esp->es_client.ea_id = id;
-
 }
 
 /*
@@ -1400,7 +1405,6 @@ u_char id;
 	PUTSHORT(outlen, lenloc);
 
 	output(esp->es_unit, outpacket_buf, PPP_HDRLEN + outlen);
-
 }
 #endif /* USE_EAPTLS */
 
@@ -1716,11 +1720,11 @@ int len;
 
 				esp->es_client.ea_using_eaptls = 1;
 
-                                if (explicit_remote){
-                                        esp->es_client.ea_peer = strdup(remote_name);
-                                        esp->es_client.ea_peerlen = strlen(remote_name);
-                                } else
-                                        esp->es_client.ea_peer = NULL;
+				if (explicit_remote){
+					esp->es_client.ea_peer = strdup(remote_name);
+					esp->es_client.ea_peerlen = strlen(remote_name);
+				} else 
+					esp->es_client.ea_peer = NULL;
 
 				/* Init ssl session */
 				if(!eaptls_init_ssl_client(esp)) {
@@ -1766,9 +1770,9 @@ int len;
 			}
 
 			/* Check if TLS handshake is finished */
-			if(SSL_is_init_finished(ets->ssl)){
+			if(eaptls_is_init_finished(ets)) {
 #ifdef MPPE
- 				eaptls_gen_mppe_keys( ets, "client EAP encryption", 1 );
+ 				eaptls_gen_mppe_keys(ets, 1);
 #endif
 				eaptls_free_session(ets);
 				eap_tls_sendack(esp, id);
@@ -1777,9 +1781,8 @@ int len;
 			}
 
 			eap_tls_response(esp,id);
-                        esp->es_client.ea_state = (ets->frag ? eapTlsRecvAck : eapTlsRecv);
-
-                        break;
+			esp->es_client.ea_state = (ets->frag ? eapTlsRecvAck : eapTlsRecv);
+			break;
 
 		default:
 			eap_send_nak(esp, id, EAPT_TLS);
@@ -2067,7 +2070,7 @@ int len;
 #ifdef USE_SRP
 	struct t_server *ts;
 	struct t_num A;
-	SHA_CTX ctxt;
+	eHA_CTX ctxt;
 	u_char dig[SHA_DIGEST_LENGTH];
 #endif /* USE_SRP */
 
@@ -2122,7 +2125,8 @@ int len;
 		case eapTlsRecv:
 	
 			ets = (struct eaptls_session *) esp->es_server.ea_session;
-			eap_figure_next_state(esp,
+
+			eap_figure_next_state(esp, 
 				eaptls_receive(esp->es_server.ea_session, inp, len));
 
 			if(ets->alert_recv) {
@@ -2140,13 +2144,12 @@ int len;
 
 		case eapTlsRecvClient:
 			/* Receive authentication response from client */
-
 			if (len > 0) {
 				GETCHAR(flags, inp);
 
 				if(len == 1 && !flags) {	/* Ack = ok */
 #ifdef MPPE
- 					eaptls_gen_mppe_keys( esp->es_server.ea_session, "client EAP encryption", 0 );
+ 					eaptls_gen_mppe_keys( esp->es_server.ea_session, 0 );
 #endif
 					eap_send_success(esp);
 				}
@@ -2434,7 +2437,7 @@ int len;
 	}
 
 #ifdef USE_EAPTLS
-	if(esp->es_client.ea_using_eaptls && esp->es_client.ea_state !=
+	if(esp->es_client.ea_using_eaptls && esp->es_client.ea_state != 
 		eapTlsRecvSuccess) {
 		dbglog("EAP-TLS unexpected success message in state %s (%d)",
                     eap_state_name(esp->es_client.ea_state),
