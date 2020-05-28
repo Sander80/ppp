@@ -40,6 +40,7 @@
 #include <openssl/engine.h>
 #include <openssl/hmac.h>
 #include <openssl/err.h>
+#include <openssl/ui.h>
 #include <openssl/x509v3.h>
 
 #include "pppd.h"
@@ -72,7 +73,7 @@ X509 *get_X509_from_file(char *filename);
 int ssl_cmp_certs(char *filename, X509 * a); 
 
 #ifdef MPPE
- 
+
 #define EAPTLS_MPPE_KEY_LEN     32
 
 /*
@@ -439,6 +440,8 @@ ENGINE *eaptls_ssl_load_engine( char *engine_name )
 	return e;
 }
 
+
+
 /*
  * Initialize the SSL stacks and tests if certificates, key and crl
  * for client or server use can be loaded.
@@ -487,6 +490,12 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 
 	SSL_library_init();
 	SSL_load_error_strings();
+
+	/* load the openssl config file only once and load it before triggering
+	   the loading of a global openssl config file via SSL_CTX_new()
+	*/
+	if (!ssl_config)
+		ssl_config = eaptls_ssl_load_config();
 
 	ctx = SSL_CTX_new(TLS_method());
 
@@ -560,23 +569,16 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 
 	}
 
-	/* load the openssl config file only once */
-	if (!ssl_config)
+	if (ssl_config && cert_engine_name)
+		cert_engine = eaptls_ssl_load_engine( cert_engine_name );
+
+	if (ssl_config && pkey_engine_name)
 	{
-		if (cert_engine_name || pkey_engine_name)
-			ssl_config = eaptls_ssl_load_config();
-
-		if (ssl_config && cert_engine_name)
-			cert_engine = eaptls_ssl_load_engine( cert_engine_name );
-
-		if (ssl_config && pkey_engine_name)
-		{
-			/* don't load the same engine twice */
-			if ( cert_engine && strcmp( cert_engine_name, pkey_engine_name) == 0 )
-				pkey_engine = cert_engine;
-			else
-				pkey_engine = eaptls_ssl_load_engine( pkey_engine_name );
-		}
+		/* don't load the same engine twice */
+		if ( cert_engine && strcmp( cert_engine_name, pkey_engine_name) == 0 )
+			pkey_engine = cert_engine;
+		else
+			pkey_engine = eaptls_ssl_load_engine( pkey_engine_name );
 	}
 
 	SSL_CTX_set_default_passwd_cb (ctx, password_callback);
@@ -594,7 +596,6 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 
 	if (init_server)
 		SSL_CTX_set_client_CA_list(ctx, SSL_load_client_CA_file(cacertfile));
-
 	if (cert_engine)
 	{
 		struct
@@ -669,12 +670,39 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 	{
 		EVP_PKEY   *pkey = NULL;
 		PW_CB_DATA  cb_data;
+		UI_METHOD* transfer_pin = NULL;
 
 		cb_data.password = passwd;
 		cb_data.prompt_info = pkey_identifier;
 
-		dbglog( "Loading private key '%s' from engine", pkey_identifier );
-		pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, NULL, &cb_data);
+		if (passwd[0] != 0)
+		{
+			UI_METHOD* transfer_pin = UI_create_method("transfer_pin");
+
+			int writer (UI *ui, UI_STRING *uis)
+			{
+				PW_CB_DATA* cb_data = (PW_CB_DATA*)UI_get0_user_data(ui);
+				UI_set_result(ui, uis, cb_data->password);
+				return 1;
+			};
+			int stub (UI* ui) {return 1;};
+			int stub_reader (UI *ui, UI_STRING *uis) {return 1;};
+
+			UI_method_set_writer(transfer_pin,  writer);
+			UI_method_set_opener(transfer_pin,  stub);
+			UI_method_set_closer(transfer_pin,  stub);
+			UI_method_set_flusher(transfer_pin, stub);
+			UI_method_set_reader(transfer_pin,  stub_reader);
+			UI_method_set_reader(transfer_pin,  stub_reader);
+
+			dbglog( "Using our private key '%s' in engine", pkey_identifier );
+			pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, transfer_pin, &cb_data);
+        }
+        else
+		{
+			dbglog( "Loading private key '%s' from engine", pkey_identifier );
+			pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, NULL, NULL);
+        }
 		if (pkey)
 		{
 		    dbglog( "Got the private key, adding it to SSL context" );
@@ -689,6 +717,8 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 			warn("EAP-TLS: Cannot load PKCS11 key %s", pkey_identifier);
 			log_ssl_errors();
 		}
+
+		if (transfer_pin) UI_destroy_method(transfer_pin);
 	}
 	else
 	{
@@ -874,7 +904,7 @@ int eaptls_init_ssl_server(eap_state * esp)
 		return 0;
 	}
 
-	strncpy(ets->peer, esp->es_server.ea_peer, MAXWORDLEN);
+	strncpy(ets->peer, esp->es_server.ea_peer, MAXWORDLEN-1);
 
 	dbglog( "getting eaptls secret" );
 	if (!get_eaptls_secret(esp->es_unit, esp->es_server.ea_peer,
@@ -965,7 +995,7 @@ int eaptls_init_ssl_client(eap_state * esp)
 	 * verify 
 	 */
 	if (esp->es_client.ea_peer)
-		strncpy(ets->peer, esp->es_client.ea_peer, MAXWORDLEN);
+		strncpy(ets->peer, esp->es_client.ea_peer, MAXWORDLEN-1);
 	else
 		ets->peer[0] = 0;
 	

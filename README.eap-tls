@@ -304,4 +304,7 @@ v1.300 (03-Apr-2020)
    requires OpenSSL 1.1.1+ to be effective.
  - Add new option 'max-tls-version' to specify the highest version of the TLS protocol to use
    (defaults to TLS1.2 for now - so to use TLS1.3 you need to explicitly add 'max-tls-version 1.3')
-
+v1.301 (28-May-2020)
+ - Fix PKCS#11 support by providing method to pass password/PIN to the PKCS#11 backend.
+ - Fix bug to allow loading of password protected private keys again
+ - Fix (minor) gcc9 compiler warnings
