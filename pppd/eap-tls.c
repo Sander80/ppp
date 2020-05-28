@@ -227,6 +227,34 @@ static int SSL_export_keying_material(SSL *s, unsigned char *out, size_t olen,
 
 #define SSL3_RT_HEADER	0x100
 
+#ifndef SSL_CTX_set_max_proto_version
+/** Mimics SSL_CTX_set_max_proto_version for OpenSSL < 1.1 */
+static inline int SSL_CTX_set_max_proto_version(SSL_CTX *ctx, long tls_ver_max)
+{
+    long sslopt = 0;
+
+    if (tls_ver_max < TLS1_VERSION)
+    {
+        sslopt |= SSL_OP_NO_TLSv1;
+    }
+#ifdef SSL_OP_NO_TLSv1_1
+    if (tls_ver_max < TLS1_1_VERSION)
+    {
+        sslopt |= SSL_OP_NO_TLSv1_1;
+    }
+#endif
+#ifdef SSL_OP_NO_TLSv1_2
+    if (tls_ver_max < TLS1_2_VERSION)
+    {
+        sslopt |= SSL_OP_NO_TLSv1_2;
+    }
+#endif
+    SSL_CTX_set_options(ctx, sslopt);
+
+    return 1;
+}
+#endif /* SSL_CTX_set_max_proto_version */
+
 #endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
 
 
@@ -393,6 +421,13 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 	X509_LOOKUP	*lookup;
 	X509		*tmp;
 	int			ret;
+#if defined(TLS1_2_VERSION)
+    long         tls_version = TLS1_2_VERSION;
+#elif defined(TLS1_1_VERSION)
+    long         tls_version = TLS1_1_VERSION;
+#else
+    long         tls_version = TLS1_VERSION;
+#endif
 
 	/*
 	 * Without these can't continue 
@@ -640,6 +675,9 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 	| SSL_OP_NO_TICKET
 #endif
 	);
+
+    dbglog("EAP-TLS: Setting max protocol version to 0x%X", tls_version);
+    SSL_CTX_set_max_proto_version(ctx, tls_version);
 
 	SSL_CTX_set_verify_depth(ctx, 5);
 	SSL_CTX_set_verify(ctx,
@@ -1315,6 +1353,12 @@ ssl_msg_callback(int write_p, int version, int content_type,
 		strcat(string, "ChangeCipherSpec");
 		break;
 
+#ifdef SSL3_RT_INNER_CONTENT_TYPE
+    case SSL3_RT_INNER_CONTENT_TYPE:
+        strcat(string, "InnerContentType (TLS1.3)");
+        break;
+#endif
+
 	case SSL3_RT_HANDSHAKE:
 
 		strcat(string, "Handshake: ");
@@ -1369,6 +1413,12 @@ ssl_msg_callback(int write_p, int version, int content_type,
 				case TLS1_2_VERSION:
 						strcat(string, "TLS 1.2");
 						break;
+#ifdef TLS1_3_VERSION
+                case TLS1_3_VERSION:
+                        strcat(string, "TLS 1.3 (not supported)");
+                        break;
+#endif
+
 				default:
 					strcat(string, "Unknown version");
 				}

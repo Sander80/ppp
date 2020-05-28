@@ -289,3 +289,13 @@ v1.102 (2-Nov-2018)
  - Print warning when certificate is either not yet valid or has expired.
  - Perform better peer certificate checks.
  - Allow certificate chain files to be used.
+v1.200 (28-Feb-2020)
+ - First version of patch that was used to create a github PR against the main ppp code base.
+ - Add client-side 'capath' option to allow a directory with trusted CA certificates.
+ - Add compile-time Makefile option to have pppd use either the internal MD5+SHA1 functions or  
+   use the ones supplied by OpenSSL.
+ - Code now also builds on Solaris (x86 tested) but has not been tested yet, as the Solaris ppp 
+   kernel driver does not support MPPE.
+v1.201 (03-Apr-2020)
+ - Force use of TLSv1.2 even if TLSv1.3 is available (with OpenSSL 1.1.1+). This ensures that
+   you can compile and link against OpenSSL 1.1.1+ without breaking the TLS negotiation.
