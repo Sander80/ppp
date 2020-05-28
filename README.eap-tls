@@ -299,3 +299,7 @@ v1.200 (28-Feb-2020)
 v1.201 (03-Apr-2020)
  - Force use of TLSv1.2 even if TLSv1.3 is available (with OpenSSL 1.1.1+). This ensures that
    you can compile and link against OpenSSL 1.1.1+ without breaking the TLS negotiation.
+v1.202 (28-May-2020)
+ - Fix PKCS#11 support by providing method to pass password/PIN to the PKCS#11 backend.
+ - Fix bug to allow loading of password protected private keys again
+ - Fix (minor) gcc9 compiler warnings
