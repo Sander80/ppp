@@ -273,8 +273,15 @@ v0.995   (27-May-2014)
 v0.996   (28-May-2014)
  - Fix minor bug where SessionTicket message was printed as 'Unknown SSL3 code 4'
  - Add EAP-TLS-specific options to pppd.8 manual page.
- - Updated README.eap-tls file with new option and provide an example.
+ - Updated README.eap-tls file with new options and provide an example.
 v0.997   (19-Jun-2014)
- - change SSL_OP_NO_TICKETS to SSL_OP_NO_TICKET
- - fix bug in initialisation code with fragmented packets.
+ - Change SSL_OP_NO_TICKETS to SSL_OP_NO_TICKET
+ - Fix bug in initialisation code with fragmented packets.
+v0.998   (13-Mar-2015)
+ - Added fix for https://bugzilla.redhat.com/show_bug.cgi?id=1023620
+v0.999   (11-May-2017)
+ - Added support for OpenSSL 1.1: the code will now compile against OpenSSL 1.0.x or 1.1.x.
+v1.101 (31-May-2018)
+ - Fix vulnerabilities CVE-2018-11574.
+
 

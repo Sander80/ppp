@@ -1703,6 +1703,11 @@ int len;
 
 		case eapListen:
 
+			if (len < 1) {
+				error("EAP: received EAP-TLS Listen packet with no data");
+				/* Bogus request; wait for something real. */
+				return;
+			}
 			GETCHAR(flags, inp);
 			if(flags & EAP_TLS_FLAGS_START){
 
@@ -1740,6 +1745,11 @@ int len;
 			break;
 
 		case eapTlsRecv:
+			if (len < 1) {
+				error("EAP: discarding EAP-TLS Receive packet with no data");
+				/* Bogus request; wait for something real. */
+				return;
+			}
 			eaptls_receive(ets, inp, len);
 
 			if(ets->frag) {
@@ -2130,19 +2140,23 @@ int len;
 		case eapTlsRecvClient:
 			/* Receive authentication response from client */
 
-			GETCHAR(flags, inp);
+			if (len > 0) {
+				GETCHAR(flags, inp);
 
-			if(len == 1 && !flags) {	/* Ack = ok */
+				if(len == 1 && !flags) {	/* Ack = ok */
 #ifdef MPPE
- 				eaptls_gen_mppe_keys( esp->es_server.ea_session, "client EAP encryption", 0 );
+ 					eaptls_gen_mppe_keys( esp->es_server.ea_session, "client EAP encryption", 0 );
 #endif
-				eap_send_success(esp);
+					eap_send_success(esp);
+				}
+				else {			/* failure */
+					eaptls_receive(esp->es_server.ea_session, inp, len);
+					warn("Server authentication failed");
+					eap_send_failure(esp);
+				}
 			}
-			else {			/* failure */
-				eaptls_receive(esp->es_server.ea_session, inp, len);
-				warn("Server authentication failed");
-				eap_send_failure(esp);
-			}
+			else
+				warn("Bogus EAP-TLS packet received from client");
 
 			eaptls_free_session(esp->es_server.ea_session);
 

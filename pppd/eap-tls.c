@@ -868,6 +868,11 @@ int eaptls_receive(struct eaptls_session *ets, u_char * inp, int len)
 	u_int tlslen;
 	u_char dummy[65536];
 
+	if (len < 1) {
+		warn("EAP-TLS: received no or invalid data");
+		return 1;
+	}
+		
 	GETCHAR(flags, inp);
 	len--;
 
@@ -881,7 +886,7 @@ int eaptls_receive(struct eaptls_session *ets, u_char * inp, int len)
 		len -= 4;
 
 		if (tlslen > EAP_TLS_MAX_LEN) {
-			error("Error: tls message length > %d, truncated",
+			error("EAP-TLS: TLS message length > %d, truncated",
 				EAP_TLS_MAX_LEN);
 			tlslen = EAP_TLS_MAX_LEN;
 		}
@@ -891,7 +896,7 @@ int eaptls_receive(struct eaptls_session *ets, u_char * inp, int len)
 		*/
 		ets->data = malloc(tlslen);
 		if (!ets->data)
-			fatal("EAP TLS: allocation error\n");
+			fatal("EAP-TLS: allocation error\n");
 
 		ets->datalen = 0;
 		ets->tlslen = tlslen;
@@ -913,7 +918,7 @@ int eaptls_receive(struct eaptls_session *ets, u_char * inp, int len)
  
 		ets->data = malloc(len);
 		if (!ets->data)
-			fatal("EAP TLS: allocation error\n");
+			fatal("EAP-TLS: allocation error\n");
  
 		ets->datalen = 0;
 		ets->tlslen = len;
@@ -924,8 +929,13 @@ int eaptls_receive(struct eaptls_session *ets, u_char * inp, int len)
 	else
 		ets->frag = 0;
 
+	if (len < 0) {
+		warn("EAP-TLS: received malformed data");
+		return 1;
+	}
+
 	if (len + ets->datalen > ets->tlslen) {
-		warn("EAP TLS: received data > TLS message length");
+		warn("EAP-TLS: received data > TLS message length");
 		return 1;
 	}
 
@@ -939,7 +949,7 @@ int eaptls_receive(struct eaptls_session *ets, u_char * inp, int len)
 		 */
 
 		if (ets->datalen != ets->tlslen) {
-			warn("EAP TLS: received data != TLS message length");
+			warn("EAP-TLS: received data != TLS message length");
 			return 1;
 		}
 
