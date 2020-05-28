@@ -634,8 +634,8 @@ int status;
 		if(ets->frag)
 			esp->es_server.ea_state = eapTlsRecvAck;
 		else
-			if(SSL_is_init_finished(ets->ssl)) 
-				esp->es_server.ea_state = eapTlsRecvClient; 
+			if(SSL_is_init_finished(ets->ssl))
+				esp->es_server.ea_state = eapTlsRecvClient;
 			else
 				esp->es_server.ea_state = eapTlsRecv;
 		break;
@@ -1035,7 +1035,7 @@ void *arg;
 #ifdef USE_EAPTLS
 	switch(esp->es_server.ea_prev_state) {
 
-	/* 
+	/*
 	 *  In eap-tls the state changes after a request, so we return to
 	 *  previous state ...
 	 */
@@ -1350,7 +1350,7 @@ u_char id;
         PUTCHAR(id, outp);
 
 	lenloc = outp;
-	INCPTR(2, outp);        
+	INCPTR(2, outp);
 
 	/*
 	   If the id in the request is unchanged, we must retransmit
@@ -1732,8 +1732,7 @@ int len;
 
 				ets = esp->es_client.ea_session;
 				eap_tls_response(esp, id);
-				esp->es_client.ea_state = (ets->frag ? eapTlsRecvAck :
-								eapTlsRecv);
+				esp->es_client.ea_state = (ets->frag ? eapTlsRecvAck : eapTlsRecv);
 				break;
 			}
 
@@ -1743,8 +1742,7 @@ int len;
 
 		case eapTlsRecvAck:
 			eap_tls_response(esp, id);
-			esp->es_client.ea_state = (ets->frag ? eapTlsRecvAck : 
-							eapTlsRecv);
+			esp->es_client.ea_state = (ets->frag ? eapTlsRecvAck : eapTlsRecv);
 			break;
 
 		case eapTlsRecv:
@@ -1779,8 +1777,7 @@ int len;
 			}
 
 			eap_tls_response(esp,id);
-                        esp->es_client.ea_state = (ets->frag ? eapTlsRecvAck :
-                                                        eapTlsRecv);
+                        esp->es_client.ea_state = (ets->frag ? eapTlsRecvAck : eapTlsRecv);
 
                         break;
 
@@ -2070,7 +2067,7 @@ int len;
 #ifdef USE_SRP
 	struct t_server *ts;
 	struct t_num A;
-	eHA_CTX ctxt;
+	SHA_CTX ctxt;
 	u_char dig[SHA_DIGEST_LENGTH];
 #endif /* USE_SRP */
 
@@ -2125,7 +2122,7 @@ int len;
 		case eapTlsRecv:
 	
 			ets = (struct eaptls_session *) esp->es_server.ea_session;
-			eap_figure_next_state(esp, 
+			eap_figure_next_state(esp,
 				eaptls_receive(esp->es_server.ea_session, inp, len));
 
 			if(ets->alert_recv) {
@@ -2437,7 +2434,7 @@ int len;
 	}
 
 #ifdef USE_EAPTLS
-	if(esp->es_client.ea_using_eaptls && esp->es_client.ea_state != 
+	if(esp->es_client.ea_using_eaptls && esp->es_client.ea_state !=
 		eapTlsRecvSuccess) {
 		dbglog("EAP-TLS unexpected success message in state %s (%d)",
                     eap_state_name(esp->es_client.ea_state),
