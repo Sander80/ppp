@@ -292,14 +292,16 @@ v1.102 (2-Nov-2018)
 v1.200 (28-Feb-2020)
  - First version of patch that was used to create a github PR against the main ppp code base.
  - Add client-side 'capath' option to allow a directory with trusted CA certificates.
- - Add compile-time Makefile option to have pppd use either the internal MD5+SHA1 functions or  
+ - Add compile-time Makefile option to have pppd use either the internal MD5+SHA1 functions or 
    use the ones supplied by OpenSSL.
  - Code now also builds on Solaris (x86 tested) but has not been tested yet, as the Solaris ppp 
    kernel driver does not support MPPE.
 v1.201 (03-Apr-2020)
  - Force use of TLSv1.2 even if TLSv1.3 is available (with OpenSSL 1.1.1+). This ensures that
    you can compile and link against OpenSSL 1.1.1+ without breaking the TLS negotiation.
-v1.202 (28-May-2020)
- - Fix PKCS#11 support by providing method to pass password/PIN to the PKCS#11 backend.
- - Fix bug to allow loading of password protected private keys again
- - Fix (minor) gcc9 compiler warnings
+v1.300 (03-Apr-2020)
+ - Add (experimental) TLS 1.3 support. This is based on draft-ietf-emu-eap-tls13-05 (expired) and 
+   requires OpenSSL 1.1.1+ to be effective.
+ - Add new option 'max-tls-version' to specify the highest version of the TLS protocol to use
+   (defaults to TLS1.2 for now - so to use TLS1.3 you need to explicitly add 'max-tls-version 1.3')
+

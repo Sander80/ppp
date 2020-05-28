@@ -40,7 +40,6 @@
 #include <openssl/engine.h>
 #include <openssl/hmac.h>
 #include <openssl/err.h>
-#include <openssl/ui.h>
 #include <openssl/x509v3.h>
 
 #include "pppd.h"
@@ -50,10 +49,31 @@
 #include "lcp.h"
 #include "pathnames.h"
 
+typedef struct pw_cb_data
+{
+	const void *password;
+	const char *prompt_info;
+} PW_CB_DATA;
+
 /* The openssl configuration file and engines can be loaded only once */
 static CONF   *ssl_config  = NULL;
 static ENGINE *cert_engine = NULL;
 static ENGINE *pkey_engine = NULL;
+
+/* TLSv1.3 do we have a session ticket ? */
+static int have_session_ticket = 0;
+
+int ssl_verify_callback(int, X509_STORE_CTX *); 
+void ssl_msg_callback(int write_p, int version, int ct, const void *buf,
+              size_t len, SSL * ssl, void *arg);
+int ssl_new_session_cb(SSL *s, SSL_SESSION *sess);
+
+X509 *get_X509_from_file(char *filename);
+int ssl_cmp_certs(char *filename, X509 * a); 
+
+#ifdef MPPE
+ 
+#define EAPTLS_MPPE_KEY_LEN     32
 
 /*
  * The following stuff is only needed if SSL_export_keying_material() is not available
@@ -259,21 +279,35 @@ static inline int SSL_CTX_set_max_proto_version(SSL_CTX *ctx, long tls_ver_max)
 #endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
 
 
-#ifdef MPPE
-
-#define EAPTLS_MPPE_KEY_LEN     32
-
 /*
  *  Generate keys according to RFC 2716 and add to reply
  */
-void eaptls_gen_mppe_keys(struct eaptls_session *ets, const char *prf_label,
-	                      int client)
+void eaptls_gen_mppe_keys(struct eaptls_session *ets, int client)
 {
 	unsigned char  out[4*EAPTLS_MPPE_KEY_LEN];
-	size_t         prf_size = strlen(prf_label);
+	const char    *prf_label;
+	size_t         prf_size;
+	unsigned char  eap_tls13_context[] = { EAPT_TLS };
+	unsigned char *context = NULL;
+	size_t         context_len = 0;
 	unsigned char *p;
 
-	if (SSL_export_keying_material(ets->ssl, out, sizeof(out), prf_label, prf_size, NULL, 0, 0) != 1)
+	dbglog("EAP-TLS generating MPPE keys");
+	if (ets->tls_v13)
+	{
+		prf_label = "EXPORTER_EAP_TLS_Key_Material";
+		context   = eap_tls13_context;
+		context_len = 1;
+	}
+	else
+	{
+		prf_label = "client EAP encryption";
+	}
+
+	dbglog("EAP-TLS PRF label = %s", prf_label);
+	prf_size = strlen(prf_label);
+	if (SSL_export_keying_material(ets->ssl, out, sizeof(out), prf_label, prf_size, 
+									context, context_len, 0) != 1)
 	{
 	    warn( "EAP-TLS: Failed generating keying material" );
 	    return;
@@ -405,8 +439,6 @@ ENGINE *eaptls_ssl_load_engine( char *engine_name )
 	return e;
 }
 
-
-
 /*
  * Initialize the SSL stacks and tests if certificates, key and crl
  * for client or server use can be loaded.
@@ -423,13 +455,13 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 	X509_STORE	*certstore;
 	X509_LOOKUP	*lookup;
 	X509		*tmp;
-	int			ret;
+	int			 ret;
 #if defined(TLS1_2_VERSION)
-    long         tls_version = TLS1_2_VERSION;
+	long         tls_version = TLS1_2_VERSION; 
 #elif defined(TLS1_1_VERSION)
-    long         tls_version = TLS1_1_VERSION;
+	long         tls_version = TLS1_1_VERSION; 
 #else
-    long         tls_version = TLS1_VERSION;
+	long         tls_version = TLS1_VERSION; 
 #endif
 
 	/*
@@ -637,41 +669,12 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 	{
 		EVP_PKEY   *pkey = NULL;
 		PW_CB_DATA  cb_data;
-		UI_METHOD* transfer_pin = NULL;
 
 		cb_data.password = passwd;
 		cb_data.prompt_info = pkey_identifier;
 
-		if (passwd[0] != 0)
-		{
-			UI_METHOD* transfer_pin = UI_create_method("transfer_pin");
-
-			int writer (UI *ui, UI_STRING *uis)
-			{
-				PW_CB_DATA* cb_data = (PW_CB_DATA*)UI_get0_user_data(ui);
-				UI_set_result(ui, uis, cb_data->password);
-				return 1;
-			};
-			int stub (UI* ui) {return 1;};
-			int stub_reader (UI *ui, UI_STRING *uis) {return 1;};
-
-			UI_method_set_writer(transfer_pin,  writer);
-			UI_method_set_opener(transfer_pin,  stub);
-			UI_method_set_closer(transfer_pin,  stub);
-			UI_method_set_flusher(transfer_pin, stub);
-			UI_method_set_reader(transfer_pin,  stub_reader);
-
-			dbglog( "Using our private key '%s' in engine", pkey_identifier );
-			pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, transfer_pin, &cb_data);
-		}
-		else
-		{
-			dbglog( "Loading private key '%s' from engine", pkey_identifier );
-			pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, NULL, NULL);
-		}
-
 		dbglog( "Loading private key '%s' from engine", pkey_identifier );
-		pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, transfer_pin, &cb_data);
+		pkey = ENGINE_load_private_key(pkey_engine, pkey_identifier, NULL, &cb_data);
 		if (pkey)
 		{
 		    dbglog( "Got the private key, adding it to SSL context" );
@@ -686,8 +689,6 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 			warn("EAP-TLS: Cannot load PKCS11 key %s", pkey_identifier);
 			log_ssl_errors();
 		}
-
-		if (transfer_pin) UI_destroy_method(transfer_pin);
 	}
 	else
 	{
@@ -710,8 +711,51 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 #endif
 	);
 
-    dbglog("EAP-TLS: Setting max protocol version to 0x%X", tls_version);
-    SSL_CTX_set_max_proto_version(ctx, tls_version);
+	/* OpenSSL 1.1.1+ does not include RC4 ciphers by default.
+	 * This causes totally obsolete WinXP clients to fail. If you really
+	 * need ppp+EAP-TLS+openssl 1.1.1+WinXP then enable RC4 cipers and
+	 * make sure that you use an OpenSSL that supports them
+
+	SSL_CTX_set_cipher_list(ctx, "RC4");
+	 */
+
+
+	/* Set up a SSL Session cache with a callback. This is needed for TLSv1.3+.
+	 * During the initial handshake the server signals to the client early on
+     * that the handshake is finished, even before the client has sent its
+     * credentials to the server. The actual connection (and moment that the
+     * client sends its credentials) only starts after the arrival of the first
+     * session ticket. The 'ssl_new_session_cb' catches this ticket.
+     */
+	SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_CLIENT | SSL_SESS_CACHE_NO_INTERNAL_STORE);
+	SSL_CTX_sess_set_new_cb(ctx, ssl_new_session_cb);
+
+	/* As EAP-TLS+TLSv1.3 is highly experimental we offer the user a chance to override */
+	if (max_tls_version)
+	{
+		if (strncmp(max_tls_version, "1.0", 3) == 0)
+			tls_version = TLS1_VERSION;	
+		else if (strncmp(max_tls_version, "1.1", 3) == 0)
+			tls_version = TLS1_1_VERSION;	
+		else if (strncmp(max_tls_version, "1.2", 3) == 0)
+#ifdef TLS1_2_VERSION
+			tls_version = TLS1_2_VERSION;	
+#else
+		{
+			warn("TLSv1.2 not available. Defaulting to TLSv1.1");
+			tls_version = TLS_1_1_VERSION;
+		}
+#endif
+		else if (strncmp(max_tls_version, "1.3", 3) == 0)
+#ifdef TLS1_3_VERSION
+			tls_version = TLS1_3_VERSION;	
+#else
+			warn("TLSv1.3 not available.");
+#endif
+	}
+
+	dbglog("EAP-TLS: Setting max protocol version to 0x%X", tls_version);
+	SSL_CTX_set_max_proto_version(ctx, tls_version);
 
 	SSL_CTX_set_verify_depth(ctx, 5);
 	SSL_CTX_set_verify(ctx,
@@ -830,7 +874,7 @@ int eaptls_init_ssl_server(eap_state * esp)
 		return 0;
 	}
 
-	strncpy(ets->peer, esp->es_server.ea_peer, MAXWORDLEN-1);
+	strncpy(ets->peer, esp->es_server.ea_peer, MAXWORDLEN);
 
 	dbglog( "getting eaptls secret" );
 	if (!get_eaptls_secret(esp->es_unit, esp->es_server.ea_peer,
@@ -872,6 +916,8 @@ int eaptls_init_ssl_server(eap_state * esp)
 	SSL_set_ex_data(ets->ssl, 0, ets);
 
 	SSL_set_accept_state(ets->ssl);
+
+	ets->tls_v13 = 0;
 
 	ets->data = NULL;
 	ets->datalen = 0;
@@ -919,7 +965,7 @@ int eaptls_init_ssl_client(eap_state * esp)
 	 * verify 
 	 */
 	if (esp->es_client.ea_peer)
-		strncpy(ets->peer, esp->es_client.ea_peer, MAXWORDLEN-1);
+		strncpy(ets->peer, esp->es_client.ea_peer, MAXWORDLEN);
 	else
 		ets->peer[0] = 0;
 	
@@ -963,6 +1009,8 @@ int eaptls_init_ssl_client(eap_state * esp)
 
 	SSL_set_connect_state(ets->ssl);
 
+	ets->tls_v13 = 0;
+
 	ets->data = NULL;
 	ets->datalen = 0;
 	ets->alert_sent = 0;
@@ -996,6 +1044,20 @@ void eaptls_free_session(struct eaptls_session *ets)
 		SSL_CTX_free(ets->ctx);
 
 	free(ets);
+}
+
+
+int eaptls_is_init_finished(struct eaptls_session *ets)
+{
+	if (ets->ssl && SSL_is_init_finished(ets->ssl))
+	{
+		if (ets->tls_v13) 
+			return have_session_ticket;
+		else
+			return 1;
+	}
+
+	return 0;
 }
 
 /*
@@ -1118,10 +1180,12 @@ int eaptls_send(struct eaptls_session *ets, u_char ** outp)
 
 	start = *outp;
 
-	if (!ets->data) {
-
+	if (!ets->data)
+	{
 		if(!ets->alert_sent)
-			SSL_read(ets->ssl, fromtls, 65536);
+		{
+			res = SSL_read(ets->ssl, fromtls, 65536);
+		}
 
 		/*
 		 * Read from ssl 
@@ -1364,7 +1428,7 @@ ssl_msg_callback(int write_p, int version, int content_type,
 				strcat(string, "TLS 1.2");
 				break;
 		default:
-			strcat(string, "Unknown version");
+			sprintf(string, "SSL/TLS Header: Unknown version (%d)", hvers);
 		}
 		break;
 
@@ -1388,9 +1452,9 @@ ssl_msg_callback(int write_p, int version, int content_type,
 		break;
 
 #ifdef SSL3_RT_INNER_CONTENT_TYPE
-    case SSL3_RT_INNER_CONTENT_TYPE:
-        strcat(string, "InnerContentType (TLS1.3)");
-        break;
+	case SSL3_RT_INNER_CONTENT_TYPE:
+		strcat(string, "InnerContentType (TLS1.3)");
+		break;
 #endif
 
 	case SSL3_RT_HANDSHAKE:
@@ -1411,6 +1475,16 @@ ssl_msg_callback(int write_p, int version, int content_type,
 #ifdef SSL3_MT_NEWSESSION_TICKET
 			case SSL3_MT_NEWSESSION_TICKET:
 				strcat(string,"New Session Ticket");
+				break;
+#endif
+#ifdef SSL3_MT_END_OF_EARLY_DATA
+			case SSL3_MT_END_OF_EARLY_DATA:
+				strcat(string,"End of Early Data");
+				break;
+#endif
+#ifdef SSL3_MT_ENCRYPTED_EXTENSIONS
+			case SSL3_MT_ENCRYPTED_EXTENSIONS:
+				strcat(string,"Encryped Extensions");
 				break;
 #endif
 			case SSL3_MT_CERTIFICATE:
@@ -1448,11 +1522,11 @@ ssl_msg_callback(int write_p, int version, int content_type,
 						strcat(string, "TLS 1.2");
 						break;
 #ifdef TLS1_3_VERSION
-                case TLS1_3_VERSION:
-                        strcat(string, "TLS 1.3 (not supported)");
-                        break;
+				case TLS1_3_VERSION:
+						strcat(string, "TLS 1.3 (experimental)");
+						ets->tls_v13 = 1;
+						break;
 #endif
-
 				default:
 					strcat(string, "Unknown version");
 				}
@@ -1472,5 +1546,15 @@ ssl_msg_callback(int write_p, int version, int content_type,
 		error("%s", string);
 	else
 		dbglog("%s", string);
+}
+
+int 
+ssl_new_session_cb(SSL *s, SSL_SESSION *sess)
+{
+	dbglog("EAP-TLS: Post-Handshake New Session Ticket arrived:");
+	have_session_ticket = 1;
+
+	/* always return success */
+	return 1;
 }
 
