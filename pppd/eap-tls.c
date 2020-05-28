@@ -418,7 +418,7 @@ SSL_CTX *eaptls_init_ssl(int init_server, char *cacertfile, char *capath,
 			pkey_engine = eaptls_ssl_load_engine( pkey_engine_name );
 	}
 
-//	SSL_CTX_set_default_passwd_cb (ctx, password_callback);
+	SSL_CTX_set_default_passwd_cb (ctx, password_callback);
 
 	if (strlen(cacertfile) == 0) cacertfile = NULL;
 	if (strlen(capath) == 0)     capath = NULL;
