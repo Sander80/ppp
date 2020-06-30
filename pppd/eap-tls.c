@@ -795,7 +795,7 @@ int eaptls_init_ssl_server(eap_state * esp)
 	 * so we can check it later in ssl_verify_callback()
 	 */
 	if (clicertfile[0])
-		strncpy(&ets->peercertfile[0], clicertfile, MAXWORDLEN-1);
+		strncpy(&ets->peercertfile[0], clicertfile, MAXWORDLEN);
 	else
 		ets->peercertfile[0] = 0;
 
